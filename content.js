@@ -99,7 +99,7 @@ navigator.getUserMedia(
                 activatedVoice
             ) {
                 const command = await chrome.runtime.sendMessage({
-                    text: speechResult.split("open ")[1],
+                    text: speechResult
                 });
                 if (command && command.message) {
                     speak(command.message);
