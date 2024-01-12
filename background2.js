@@ -85,20 +85,24 @@ const tableNames = {
     "Plant": "CV_R_SD_REG_SALES_DATA'[Customer Region Name]",
   },
   "sales analysis dashboard": "PRILFY2023",
-  // ... (other dashboard table names)
 };
 
-const getFilters = (name, filterText) => {
-  let filtersToReturn = [];
-  const availableFilters = filterKeywords[name].map((filter) =>
-    filter.toLowerCase(),
-  );
-  for (let i = 0; i < availableFilters.length; i++) {
-    if (filterText.toLowerCase().includes(availableFilters[i].toLowerCase())) {
-      filtersToReturn.push(filterKeywords[name][i]);
-    }
+const addFilters = (link, tableName, filterName, filterValues) => {
+  if (typeof tableName === 'object' && tableName[filterName]) {
+    tableName = tableName[filterName];
   }
-  return filtersToReturn;
+
+  const matchedFilterValues = getFilters(filterName, filterValues.join(' '));
+
+  if (matchedFilterValues.length === 0) {
+    return link; // No matching filter values found, return the original link
+  }
+
+  if (matchedFilterValues.length <= 1) {
+    return addSingleFilter(link, tableName, filterName, matchedFilterValues[0]);
+  } else {
+    return addMultipleFilter(link, tableName, filterName, matchedFilterValues);
+  }
 };
 
 const getFilterValues = (name, filterName, filterText) => {
@@ -128,18 +132,16 @@ const addMultipleFilter = (link, tableName, filterName, filterValues) => {
   return `${link}${filter}`;
 };
 
+function addMultipleFilters(link, tableName, filterParams) {
+  const filters = filterParams.map((param) => {
+    const { field, operator, value } = param;
+    return `${tableName}/${field} ${operator} '${value}'`;
+  });
 
-const addFilters = (link, tableName, filterName, filterValues) => {
-  if (typeof tableName === 'object' && tableName[filterName]) {
-    tableName = tableName[filterName];
-  }
+  const filter = `&filter=${filters.join(' and ')}`;
+  return `${link}${filter}`;
+}
 
-  if (filterValues.length <= 1) {
-    return addSingleFilter(link, tableName, filterName, filterValues[0]);
-  } else {
-    return addMultipleFilter(link, tableName, filterName, filterValues);
-  }
-};
 
 chrome.action.onClicked.addListener((tab) => {
   if (!tab.url.includes("https://mspl-1-c9455971.deta.app")) {
@@ -156,7 +158,9 @@ chrome.action.onClicked.addListener((tab) => {
   });
 });
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+let dashboardTabId = null;
+
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   let link;
   if (request && request.text && request.text.includes("filter")) {
     const reportName = request.text
@@ -182,14 +186,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log(filterValues);
     console.log(newLink);
     if (newLink) {
-      chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-        const currentTab = tabs[0];
-        if (currentTab.url.includes("https://mspl-1-c9455971.deta.app")) {
-          chrome.tabs.create({ url: newLink });
-        } else {
-          chrome.tabs.update(currentTab.id, { url: newLink });
-        }
-      });
+      if (dashboardTabId) {
+        chrome.tabs.update(dashboardTabId, { url: newLink });
+      } else {
+        chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+          const currentTab = tabs[0];
+          if (currentTab.url.includes("https://mspl-1-c9455971.deta.app")) {
+            chrome.tabs.create({ url: newLink }, (tab) => {
+              dashboardTabId = tab.id;
+            });
+          } else {
+            chrome.tabs.update(currentTab.id, { url: newLink });
+            dashboardTabId = currentTab.id;
+          }
+        });
+      }
       link = `Opening ${reportName} with filter ${filterName} as ${filterValues}`;
     } else {
       console.log(filterText);
@@ -198,7 +209,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request && request.text) {
     link = getPowerBILinks(request.text.toLowerCase().slice(5));
     if (link) {
-      chrome.tabs.create({ url: link });
+      if (dashboardTabId) {
+        chrome.tabs.update(dashboardTabId, { url: link });
+      } else {
+        chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+          const currentTab = tabs[0];
+          if (currentTab.url.includes("https://mspl-1-c9455971.deta.app")) {
+            chrome.tabs.create({ url: link }, (tab) => {
+              dashboardTabId = tab.id;
+            });
+          } else {
+            chrome.tabs.update(currentTab.id, { url: link });
+            dashboardTabId = currentTab.id;
+          }
+        });
+      }
       link = `Opening ${request.text.toLowerCase().slice(5)}`;
     } else {
       link = "Sorry, I didn't get that";
@@ -206,4 +231,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   sendResponse({ message: link });
   return true;
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId === dashboardTabId) {
+    dashboardTabId = null;
+  }
 });
