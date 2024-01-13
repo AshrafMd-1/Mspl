@@ -208,3 +208,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   sendResponse({ message: link });
   return true;
 });
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId === dashboardTabId) {
+    dashboardTabId = null;
+  }
+});
